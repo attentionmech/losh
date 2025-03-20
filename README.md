@@ -1,6 +1,6 @@
 # losh
 
-LLM finetuner
+LLM
 
 ## losh-server
 
