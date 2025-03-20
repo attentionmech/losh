@@ -8,4 +8,4 @@ LLM finetuner
 ## losh-cli
 
 
-## Loshfile
+## loshfile
