@@ -2,7 +2,7 @@
 
 <img src="https://github.com/user-attachments/assets/69724856-206d-409b-8a82-d9222859faee" width=400 height=400 alt="courtesy dalle" />
 
-Experiment orchestrator for the LLM world.
+Experiment orchestrator for the LLMs.
 
 ## losh-server
 
