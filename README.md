@@ -5,12 +5,13 @@
 <br>
 <br>
 
-Local-first orchestrator for the LLM experiments.
+Lightweight, Local-first orchestrator for the LLM experiments.
 
 ## Features
 
 - local-first: targeting local-experiments with local llms as first class citizens
 - opinionated: defaults for everything, to allow anyone to start within minutes of install
+- lightweight: simple and lightweight, least possible path towards getting things done
 
 ## What it is NOT
 
