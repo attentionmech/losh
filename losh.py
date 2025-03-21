@@ -11,15 +11,51 @@ from transformers import (
     Trainer
 )
 from datasets import Dataset
+from itertools import product
 
 @task(name="load_config")
-def load_config(config_file="Loshfile.yaml"):
+def load_config(config_file="Loshfiles/finetuning.yaml"):
     """Load configuration from YAML file."""
     with open(config_file, 'r') as file:
         config = yaml.safe_load(file)
-    
-    config['output_dir'] = config['output_dir'].format(experiment_name=config['experiment_name'])
     return config
+
+def generate_config_combinations(base_config):
+    """Generate all combinations of config values when lists are provided."""
+    # Identify keys with list values
+    list_keys = {k: v for k, v in base_config.items() if isinstance(v, list)}
+    single_keys = {k: v for k, v in base_config.items() if not isinstance(v, list)}
+    
+    # If no lists, return the base config as a single combination
+    if not list_keys:
+        return [(single_keys, "run_0")]
+    
+    # Generate all combinations using itertools.product
+    keys = list(list_keys.keys())
+    values = [list_keys[k] for k in keys]
+    combinations = product(*values)
+    
+    # Create a list of config dicts with unique run names
+    config_combinations = []
+    for i, combo in enumerate(combinations):
+        new_config = single_keys.copy()
+        for key, value in zip(keys, combo):
+            new_config[key] = value
+        # Format output_dir with experiment_name and run index
+        run_name = f"run_{i}"
+        new_config['output_dir'] = new_config['output_dir'].format(experiment_name=new_config['experiment_name']) + f"/{run_name}"
+        config_combinations.append((new_config, run_name))
+    
+    return config_combinations
+
+@task(name="save_config")
+def save_config(config, output_dir):
+    """Save the final config to a file."""
+    os.makedirs(output_dir, exist_ok=True)
+    config_file = f"{output_dir}/config.yaml"
+    with open(config_file, 'w') as f:
+        yaml.safe_dump(config, f)
+    print(f"Config saved as {config_file}")
 
 @task(name="generate_samples")
 def generate_samples(config):
@@ -119,31 +155,45 @@ def compare_outputs(config):
                                          num_return_sequences=1, do_sample=True, 
                                          top_k=config['top_k'], top_p=config['top_p'])
     
-    print(f"\n===== Original {config['base_model']} Output =====")
+    print(f"\n===== Original {config['base_model']} Output ({config['output_dir']}) =====")
     print(original_output[0]["generated_text"])
-    print(f"\n===== Fine-Tuned {config['base_model']} Output =====")
+    print(f"\n===== Fine-Tuned {config['base_model']} Output ({config['output_dir']}) =====")
     print(finetuned_output[0]["generated_text"])
 
 @flow(name="model_finetuning_workflow")
-def finetuning_workflow():
-    """Main workflow for model finetuning experiment."""
-    # Step 1: Load configuration
-    config = load_config()
+def finetuning_workflow(config):
+    """Main workflow for a single model finetuning experiment."""
+    # Save the config for this run
+    save_config(config, config['output_dir'])
     
-    # Step 2: Generate samples
+    # Generate samples
     samples = generate_samples(config)
     
-    # Step 3: Prepare dataset
+    # Prepare dataset
     dataset = prepare_dataset(config, samples)
     
-    # Step 4: Tokenize dataset
+    # Tokenize dataset
     tokenized_dataset = tokenize_dataset(dataset, config)
     
-    # Step 5: Train model
+    # Train model
     train_model(tokenized_dataset, config)
     
-    # Step 6: Compare outputs
+    # Compare outputs
     compare_outputs(config)
 
+@flow(name="multi_config_finetuning_workflow")
+def multi_config_finetuning_workflow():
+    """Run the finetuning workflow for all config combinations."""
+    # Load the base configuration
+    base_config = load_config()
+    
+    # Generate all config combinations
+    config_combinations = generate_config_combinations(base_config)
+    
+    # Run the workflow for each combination
+    for config, run_name in config_combinations:
+        print(f"\nStarting run: {run_name} with config: {config}")
+        finetuning_workflow(config)
+
 if __name__ == "__main__":
-    finetuning_workflow()
+    multi_config_finetuning_workflow()

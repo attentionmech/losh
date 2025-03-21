@@ -1,13 +1,13 @@
 experiment_name: "joke_gpt2_finetune"
 base_model: "gpt2"
 dataset_prompt: "Here is a joke:"
-num_samples: 10
+num_samples: [10, 20, 30, 40]
 generation_max_length: 100
 tokenizer_max_length: 128
 train_batch_size: 4
 eval_batch_size: 4
 num_epochs: 3
-weight_decay: 0.01
+weight_decay: [0.01, 0.02]
 logging_steps: 100
 output_dir: "./experiments/{experiment_name}"
 logging_dir: "./logs"
