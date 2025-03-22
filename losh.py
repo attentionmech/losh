@@ -9,6 +9,7 @@ from transformers import (
     DataCollatorForLanguageModeling,
     AutoModelForCausalLM,
     AutoTokenizer,
+    TrainerCallback,
 )
 from datasets import load_dataset
 
@@ -19,6 +20,7 @@ if sys.platform == "darwin":
     import mlx.optimizers as optim
 
 from prefect import flow, task, get_run_logger
+from datetime import datetime
 
 # Set up Python's built-in logger
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +30,81 @@ logger = logging.getLogger(__name__)
 with open("banner.txt") as f:
     print(f.read())
     print("\n")
+
+
+class MetricCollector:
+    """Class to collect and log metrics to either TensorBoard or Weights & Biases."""
+
+    def __init__(
+        self, backend: str = "tensorboard", project_name: str = "model_training"
+    ):
+        self.backend = backend.lower()
+        self.project_name = project_name
+        self.writer = None
+        self.step = 0
+
+        if self.backend == "tensorboard":
+            from torch.utils.tensorboard import SummaryWriter
+
+            log_dir = f"runs/{project_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            self.writer = SummaryWriter(log_dir=log_dir)
+            logger.info(f"Initialized TensorBoard writer with log_dir: {log_dir}")
+        elif self.backend == "wandb":
+            import wandb
+
+            wandb.init(
+                project=project_name,
+                name=f"{project_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            )
+            self.writer = wandb
+            logger.info(f"Initialized Weights & Biases for project: {project_name}")
+        else:
+            raise ValueError(
+                f"Unsupported metrics backend: {self.backend}. Use 'tensorboard' or 'wandb'."
+            )
+
+    def log_metric(self, metric_name: str, value: float, step: int = None):
+        """Log a single metric."""
+        if step is not None:
+            self.step = step
+
+        if self.backend == "tensorboard":
+            self.writer.add_scalar(metric_name, value, self.step)
+        elif self.backend == "wandb":
+            self.writer.log({metric_name: value}, step=self.step)
+        self.step += 1
+
+    def log_metrics(self, metrics: dict, step: int = None):
+        """Log multiple metrics at once."""
+        if step is not None:
+            self.step = step
+
+        if self.backend == "tensorboard":
+            for name, value in metrics.items():
+                self.writer.add_scalar(name, value, self.step)
+        elif self.backend == "wandb":
+            self.writer.log(metrics, step=self.step)
+        self.step += 1
+
+    def close(self):
+        """Close the writer."""
+        if self.backend == "tensorboard":
+            self.writer.close()
+        elif self.backend == "wandb":
+            self.writer.finish()
+        logger.info(f"Closed {self.backend} writer")
+
+
+class MetricCallback(TrainerCallback):
+    """Callback to log metrics during Transformers training."""
+
+    def __init__(self, metric_collector: MetricCollector):
+        self.metric_collector = metric_collector
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs is not None:
+            step = state.global_step
+            self.metric_collector.log_metrics(logs, step=step)
 
 
 class AbstractBackend(ABC):
@@ -50,7 +127,12 @@ class AbstractBackend(ABC):
         pass
 
     @abstractmethod
-    def finetune(self, output_dir: str, num_train_epochs: int):
+    def finetune(
+        self,
+        output_dir: str,
+        num_train_epochs: int,
+        metric_collector: MetricCollector = None,
+    ):
         pass
 
 
@@ -100,7 +182,12 @@ class TransformersBackend(AbstractBackend):
         response = text_generator(prompt, max_length=max_length, do_sample=True)
         return response[0]["generated_text"]
 
-    def finetune(self, output_dir: str = "./hf_results", num_train_epochs: int = 1):
+    def finetune(
+        self,
+        output_dir: str = "./hf_results",
+        num_train_epochs: int = 1,
+        metric_collector: MetricCollector = None,
+    ):
         training_args = TrainingArguments(
             output_dir=output_dir,
             evaluation_strategy="no",
@@ -110,11 +197,15 @@ class TransformersBackend(AbstractBackend):
             num_train_epochs=num_train_epochs,
             weight_decay=0.01,
             save_total_limit=1,
+            logging_steps=10,  # Log every 10 steps
+            logging_strategy="steps",
         )
 
         data_collator = DataCollatorForLanguageModeling(
             tokenizer=self.tokenizer, mlm=False
         )
+
+        callbacks = [MetricCallback(metric_collector)] if metric_collector else []
 
         trainer = Trainer(
             model=self.model,
@@ -122,6 +213,7 @@ class TransformersBackend(AbstractBackend):
             train_dataset=self.dataset,
             tokenizer=self.tokenizer,
             data_collator=data_collator,
+            callbacks=callbacks,
         )
 
         trainer.train()
@@ -190,7 +282,12 @@ class MLXBackend(AbstractBackend):
             )
         }
 
-    def finetune(self, output_dir: str = "./mlx_results", num_train_epochs: int = 1):
+    def finetune(
+        self,
+        output_dir: str = "./mlx_results",
+        num_train_epochs: int = 1,
+        metric_collector: MetricCollector = None,
+    ):
         if self.processed_dataset is None:
             raise ValueError(
                 "No preprocessed dataset available. Call preprocess_dataset first."
@@ -214,10 +311,15 @@ class MLXBackend(AbstractBackend):
                 loss, grads = nn.value_and_grad(self.model, loss_fn)(self.model, batch)
                 optimizer.update(self.model, grads)
                 mx.eval(self.model.parameters(), optimizer.state)
+                step = epoch * num_batches + (i // batch_size)
                 if i % (batch_size * 10) == 0:
                     logger.info(
                         f"Batch {i // batch_size}/{num_batches}, Loss: {loss.item():.4f}"
                     )
+                    if metric_collector:
+                        metric_collector.log_metric(
+                            "train/loss", loss.item(), step=step
+                        )
 
         os.makedirs(output_dir, exist_ok=True)
         output_path = f"{output_dir}/finetuned_model.npz"
@@ -257,6 +359,14 @@ def initialize_backend(config):
         raise ValueError(f"Unknown backend: {backend_name}")
 
 
+@task(name="initialize_metric_collector")
+def initialize_metric_collector(
+    backend: str = "tensorboard", project_name: str = "model_training"
+):
+    """Initialize the metric collector."""
+    return MetricCollector(backend=backend, project_name=project_name)
+
+
 @task(name="run_generate_text")
 def run_generate_text(backend, prompt: str, **kwargs):
     return backend.generate_text(prompt, **kwargs)
@@ -273,8 +383,13 @@ def run_preprocess_dataset(backend, max_length: int):
 
 
 @task(name="run_finetune")
-def run_finetune(backend, output_dir: str, num_train_epochs: int):
-    backend.finetune(output_dir, num_train_epochs)
+def run_finetune(
+    backend,
+    output_dir: str,
+    num_train_epochs: int,
+    metric_collector: MetricCollector = None,
+):
+    backend.finetune(output_dir, num_train_epochs, metric_collector)
 
 
 # Prefect Flow
@@ -287,8 +402,11 @@ def backend_workflow(config_file: str):
     workflow = config["workflow"]
     steps = workflow["steps"]
 
-    # Initialize the backend
+    # Initialize the backend and metric collector
     backend = initialize_backend(config)
+    metric_collector = initialize_metric_collector(
+        backend="tensorboard", project_name="model_training"
+    )  # Default to TensorBoard
 
     # Execute each step sequentially
     for step in steps:
@@ -306,9 +424,12 @@ def backend_workflow(config_file: str):
         elif function_name == "preprocess_dataset":
             run_preprocess_dataset(backend, **params)
         elif function_name == "finetune":
-            run_finetune(backend, **params)
+            run_finetune(backend, metric_collector=metric_collector, **params)
         else:
             raise ValueError(f"Unknown function: {function_name}")
+
+    # Close the metric collector
+    metric_collector.close()
 
 
 if __name__ == "__main__":
