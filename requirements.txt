@@ -6,4 +6,4 @@ pyyaml
 accelerate
 mlx-lm; sys_platform == "darwin"
 tensorboard
-wandb
+tqdm
