@@ -1,6 +1,6 @@
 # losh
 
-Lightweight Experiment Runner for LLM
+Lightweight Experiment Runner for LLMs
 
 ## rough shape 
 
