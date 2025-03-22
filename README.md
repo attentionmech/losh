@@ -3,7 +3,6 @@
 
 <br>
 
-Lightweight Experiment Runner
 
 ## Get started
 
@@ -14,7 +13,6 @@ Lightweight Experiment Runner
 3. `python losh.py loshfiles/finetuning.yml`
 
 4. swap `TransformersBackend` with `MLXBackend` and re-run
-Lightweight Experiment Runner for LLMs
 
 ## rough shape 
 
