@@ -6,7 +6,7 @@
 
 ## Get started
 
-1. clone repo, and install dependencies
+1. clone repo
 
 2. `pip install prefect transformers datasets torch mlx-lm pyyaml accelerate`
 
