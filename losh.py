@@ -26,6 +26,9 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Debug why wandb is activating
+os.environ["WANDB_DISABLED"] = "true"
+
 # Keep banner as print
 with open("banner.txt") as f:
     print(f.read())
@@ -36,7 +39,7 @@ class MetricCollector:
     """Class to collect and log metrics to either TensorBoard or Weights & Biases."""
 
     def __init__(
-        self, backend: str = "tensorboard", project_name: str = "model_training"
+        self, backend: str = "tensorboard", project_name: str = "losh"
     ):
         self.backend = backend.lower()
         self.project_name = project_name
@@ -51,6 +54,8 @@ class MetricCollector:
             logger.info(f"Initialized TensorBoard writer with log_dir: {log_dir}")
         elif self.backend == "wandb":
             import wandb
+            
+            os.environ["WANDB_DISABLED"] = "false"
 
             wandb.init(
                 project=project_name,
@@ -405,7 +410,7 @@ def backend_workflow(config_file: str):
     # Initialize the backend and metric collector
     backend = initialize_backend(config)
     metric_collector = initialize_metric_collector(
-        backend="tensorboard", project_name="model_training"
+        backend="tensorboard", project_name="losh"
     )  # Default to TensorBoard
 
     # Execute each step sequentially
