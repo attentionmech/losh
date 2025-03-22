@@ -1,6 +1,7 @@
 import os
 import yaml
 import sys
+import logging
 from abc import ABC, abstractmethod
 from transformers import (
     Trainer,
@@ -17,10 +18,13 @@ if sys.platform == "darwin":
     import mlx.nn as nn
     import mlx.optimizers as optim
 
+from prefect import flow, task, get_run_logger
 
-from prefect import flow, task
+# Set up Python's built-in logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-
+# Keep banner as print
 with open("banner.txt") as f:
     print(f.read())
     print("\n")
@@ -61,7 +65,7 @@ class TransformersBackend(AbstractBackend):
         self.dataset = None
 
     def load_model(self, model_name: str):
-        print(f"Loading HF model: {model_name}")
+        logger.info(f"Loading HF model: {model_name}")
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForCausalLM.from_pretrained(model_name)
         return model, tokenizer
@@ -72,7 +76,7 @@ class TransformersBackend(AbstractBackend):
         dataset_config: str = "wikitext-2-raw-v1",
         split: str = "train[:1%]",
     ):
-        print(f"Loading dataset: {dataset_name} ({dataset_config})")
+        logger.info(f"Loading dataset: {dataset_name} ({dataset_config})")
         self.dataset = load_dataset(dataset_name, dataset_config, split=split)
 
     def preprocess_dataset(self, max_length: int = 128):
@@ -89,7 +93,7 @@ class TransformersBackend(AbstractBackend):
     def generate_text(self, prompt: str, max_length: int = 100, **kwargs) -> str:
         from transformers import pipeline
 
-        print(f"Generating text with Transformers for prompt: {prompt}")
+        logger.info(f"Generating text with Transformers for prompt: {prompt}")
         text_generator = pipeline(
             "text-generation", model=self.model, tokenizer=self.tokenizer
         )
@@ -124,7 +128,7 @@ class TransformersBackend(AbstractBackend):
         os.makedirs(output_dir, exist_ok=True)
         self.model.save_pretrained(output_dir)
         self.tokenizer.save_pretrained(output_dir)
-        print(f"Transformers model saved to {output_dir}")
+        logger.info(f"Transformers model saved to {output_dir}")
 
 
 class MLXBackend(AbstractBackend):
@@ -137,12 +141,12 @@ class MLXBackend(AbstractBackend):
         self.processed_dataset = None
 
     def load_model(self, model_name: str):
-        print(f"Loading MLX model: {model_name}")
+        logger.info(f"Loading MLX model: {model_name}")
         model, tokenizer = load(model_name)
         return model, tokenizer
 
     def generate_text(self, prompt: str, verbose: bool = False, **kwargs) -> str:
-        print(f"Generating text with MLX for prompt: {prompt}")
+        logger.info(f"Generating text with MLX for prompt: {prompt}")
         response = generate(
             model=self.model,
             tokenizer=self.tokenizer,
@@ -158,7 +162,7 @@ class MLXBackend(AbstractBackend):
         dataset_config: str = "wikitext-2-raw-v1",
         split: str = "train[:1%]",
     ):
-        print(f"Loading dataset for MLX: {dataset_name} ({dataset_config})")
+        logger.info(f"Loading dataset for MLX: {dataset_name} ({dataset_config})")
         self.dataset = load_dataset(dataset_name, dataset_config, split=split)
 
     def preprocess_dataset(self, max_length: int = 128):
@@ -178,7 +182,7 @@ class MLXBackend(AbstractBackend):
                 input_ids.append(tokens)
             return {"input_ids": input_ids}
 
-        print("Preprocessing dataset for MLX...")
+        logger.info("Preprocessing dataset for MLX...")
         tokenized_dataset = self.dataset.map(tokenize_function, batched=True)
         self.processed_dataset = {
             "input_ids": mx.array(
@@ -192,7 +196,7 @@ class MLXBackend(AbstractBackend):
                 "No preprocessed dataset available. Call preprocess_dataset first."
             )
 
-        print(f"Fine-tuning MLX model: {self.model_name}")
+        logger.info(f"Fine-tuning MLX model: {self.model_name}")
 
         def loss_fn(model, input_ids):
             logits = model(input_ids[:, :-1])
@@ -204,21 +208,21 @@ class MLXBackend(AbstractBackend):
         num_batches = len(self.processed_dataset["input_ids"]) // batch_size
 
         for epoch in range(num_train_epochs):
-            print(f"Epoch {epoch + 1}/{num_train_epochs}")
+            logger.info(f"Epoch {epoch + 1}/{num_train_epochs}")
             for i in range(0, len(self.processed_dataset["input_ids"]), batch_size):
                 batch = self.processed_dataset["input_ids"][i : i + batch_size]
                 loss, grads = nn.value_and_grad(self.model, loss_fn)(self.model, batch)
                 optimizer.update(self.model, grads)
                 mx.eval(self.model.parameters(), optimizer.state)
                 if i % (batch_size * 10) == 0:
-                    print(
+                    logger.info(
                         f"Batch {i // batch_size}/{num_batches}, Loss: {loss.item():.4f}"
                     )
 
         os.makedirs(output_dir, exist_ok=True)
         output_path = f"{output_dir}/finetuned_model.npz"
         self.model.save_weights(output_path)
-        print(f"MLX model saved to {output_path}")
+        logger.info(f"MLX model saved to {output_path}")
 
 
 # Prefect Tasks
@@ -233,14 +237,15 @@ def load_config(config_file: str):
 @task(name="initialize_backend")
 def initialize_backend(config):
     """Initialize the specified backend."""
+    logger = get_run_logger()
     workflow = config["workflow"]
     backend_name = workflow["backend"]
     model_name = workflow["model_name"]
     device = workflow.get("device", "cpu")
 
     if sys.platform != "darwin" and backend_name == "MLXBackend":
-        print(
-            """Warning: MLXBackend is not supported on this platform. Defaulting to TransformersBackend."""
+        logger.warning(
+            "Warning: MLXBackend is not supported on this platform. Defaulting to TransformersBackend."
         )
         return TransformersBackend(model_name, device=device)
 
@@ -276,6 +281,7 @@ def run_finetune(backend, output_dir: str, num_train_epochs: int):
 @flow(name="backend_workflow")
 def backend_workflow(config_file: str):
     """Main workflow for executing backend steps."""
+    logger = get_run_logger()
     # Load the configuration
     config = load_config(config_file)
     workflow = config["workflow"]
@@ -289,12 +295,12 @@ def backend_workflow(config_file: str):
         function_name = step["function"]
         params = step.get("params", {})
 
-        print("\n" + "-" * 50)
-        print(f"\n**** Executing {function_name} with params: {params} **** \n")
+        logger.info("\n" + "-" * 50)
+        logger.info(f"\n**** Executing {function_name} with params: {params} **** \n")
 
         if function_name == "generate_text":
             result = run_generate_text(backend, **params)
-            print(f"Generated text: {result}")
+            logger.info(f"Generated text: {result}")
         elif function_name == "load_dataset":
             run_load_dataset(backend, **params)
         elif function_name == "preprocess_dataset":
@@ -307,7 +313,7 @@ def backend_workflow(config_file: str):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python losh.py <config_file>")
+        logger.error("Usage: python losh.py <config_file>")
         sys.exit(1)
 
     config_file = sys.argv[1]
