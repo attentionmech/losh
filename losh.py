@@ -10,10 +10,14 @@ from transformers import (
     AutoTokenizer,
 )
 from datasets import load_dataset
-from mlx_lm import load, generate
-import mlx.core as mx
-import mlx.nn as nn
-import mlx.optimizers as optim
+
+if sys.platform == "darwin":
+    from mlx_lm import load, generate
+    import mlx.core as mx
+    import mlx.nn as nn
+    import mlx.optimizers as optim
+
+
 from prefect import flow, task
 
 
@@ -236,6 +240,12 @@ def initialize_backend(config):
     backend_name = workflow["backend"]
     model_name = workflow["model_name"]
     device = workflow.get("device", "cpu")
+
+    if sys.platform != "darwin" and backend_name == "MLXBackend":
+        print(
+            """Warning: MLXBackend is not supported on this platform. Defaulting to TransformersBackend."""
+        )
+        return TransformersBackend(model_name, device=device)
 
     if backend_name == "TransformersBackend":
         return TransformersBackend(model_name, device=device)

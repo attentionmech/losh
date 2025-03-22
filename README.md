@@ -13,7 +13,7 @@ Lightweight Experiment Runner for llms (Under construction)
 4. swap `TransformersBackend` with `MLXBackend` and re-run
 Lightweight Experiment Runner for LLMs
 
-## rough shape 
+## Rough shape 
 
 - llm experiments oriented: target is to solve this little more than what notebooks do, but not a replacement
 - local-first: targeting local-experiments with local llms as first class citizens

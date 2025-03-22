@@ -1,0 +1,7 @@
+prefect
+transformers
+datasets
+torch
+pyyaml
+accelerate
+mlx-lm; sys_platform == "darwin"
