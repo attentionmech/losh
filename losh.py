@@ -291,7 +291,10 @@ def backend_workflow(config_file: str):
     for step in steps:
         function_name = step["function"]
         params = step.get("params", {})
-        print(f"\nExecuting {function_name} with params: {params}")
+        
+        print("\n" + "-" * 50)
+        print(f"\n**** Executing {function_name} with params: {params} **** \n")
+
 
         if function_name == "generate_text":
             result = run_generate_text(backend, **params)

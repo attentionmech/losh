@@ -1,7 +1,7 @@
 workflow:
-  backend: "TransformersBackend"
+  backend: "TransformersBackend" #MLXBackend
   model_name: "openai-community/gpt2"
-  device: "cpu"
+  device: "mps"
   steps:
     - function: "generate_text"
       params:
@@ -19,3 +19,7 @@ workflow:
       params:
         output_dir: "./results"
         num_train_epochs: 1
+    - function: "generate_text"
+      params:
+        prompt: "What is the meaning of life?"
+        max_length: 100
