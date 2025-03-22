@@ -91,10 +91,7 @@ class TransformersBackend(AbstractBackend):
 
         print(f"Generating text with Transformers for prompt: {prompt}")
         text_generator = pipeline(
-            "text-generation",
-            model=self.model,
-            tokenizer=self.tokenizer,
-            device=0 if self.device == "cuda" else -1,
+            "text-generation", model=self.model, tokenizer=self.tokenizer
         )
         response = text_generator(prompt, max_length=max_length, do_sample=True)
         return response[0]["generated_text"]
@@ -291,10 +288,9 @@ def backend_workflow(config_file: str):
     for step in steps:
         function_name = step["function"]
         params = step.get("params", {})
-        
+
         print("\n" + "-" * 50)
         print(f"\n**** Executing {function_name} with params: {params} **** \n")
-
 
         if function_name == "generate_text":
             result = run_generate_text(backend, **params)

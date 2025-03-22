@@ -1,7 +1,6 @@
 workflow:
   backend: "TransformersBackend" #MLXBackend
   model_name: "openai-community/gpt2"
-  device: "mps"
   steps:
     - function: "generate_text"
       params:

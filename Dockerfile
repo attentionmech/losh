@@ -19,4 +19,4 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 
 # Default command to run experiments
-CMD ["python", "losh.py", "loshfiles/finetuning.yml"]
+CMD ["python", "losh.py", "loshfiles/sample.yml"]
