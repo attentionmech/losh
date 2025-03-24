@@ -1,0 +1,25 @@
+workflow:
+  backend: "TransformersBackend" #MLXBackend
+  model_name: "openai-community/gpt2"
+  steps:
+    - function: "generate_text"
+      params:
+        prompt: "What is the meaning of life?"
+        max_length: 100
+    - function: "load_dataset"
+      params:
+        dataset_name: "wikitext"
+        dataset_config: "wikitext-2-v1"
+        split: "train[:1%]"
+    - function: "preprocess_dataset"
+      params:
+        max_length: 128
+        key: "text"
+    - function: "finetune"
+      params:
+        output_dir: "./results"
+        num_train_epochs: 1
+    - function: "generate_text"
+      params:
+        prompt: "What is the meaning of life?"
+        max_length: 100
