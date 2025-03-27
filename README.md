@@ -6,7 +6,7 @@
 
 <br><br>
 
-magical staff for llm experiments
+magical staff for llm experiments (still in IDEA phase)
 
 <br>
 
